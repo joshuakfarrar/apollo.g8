@@ -1,0 +1,48 @@
+//| mill-version: 1.0.4
+
+package build
+
+import mill.*, scalalib.*
+
+/*
+ * run `mill --no-server apollo.run` on windows
+ * otherwise java will not shutdown properly
+ * upon ctrl+c (SIGINT) of the mill client
+ */
+
+val Http4sVersion = "0.23.29"
+val CirceVersion = "0.14.10"
+val LogbackVersion = "1.5.17"
+
+object webapp extends ScalaModule {
+  def scalaVersion = "3.3.3"
+
+  def mainClass = Some("Main")
+
+  def runMvnDeps = Seq(
+    mvn"ch.qos.logback:logback-classic:$LogbackVersion"
+  )
+
+  def mvnDeps = Seq(
+    // Java dependencies - use single colon
+    mvn"org.fusesource.jansi:jansi:2.4.1",
+    mvn"com.microsoft.sqlserver:mssql-jdbc:12.9.0.jre11-preview",
+    //ivy"com.password4j:password4j:1.8.2",
+    mvn"org.webjars.npm:normalize.css:8.0.1",
+    mvn"org.webjars.npm:jquery:4.0.0-beta.2",
+    mvn"org.webjars.npm:bootstrap:5.3.3",
+
+    // Scala dependencies - use double colon
+    mvn"org.http4s::http4s-ember-server:$Http4sVersion",
+    mvn"org.http4s::http4s-ember-client:$Http4sVersion",
+    mvn"org.http4s::http4s-circe:$Http4sVersion",
+    mvn"org.http4s::http4s-dsl:$Http4sVersion",
+    mvn"io.circe::circe-generic:$CirceVersion",
+    mvn"org.typelevel::case-insensitive:1.4.2",
+    mvn"com.github.pureconfig::pureconfig-core:0.17.8",
+    mvn"com.lihaoyi::scalatags:0.13.1",
+    mvn"com.lihaoyi::upickle:4.1.0",
+    mvn"org.tpolecat::doobie-core:1.0.0-RC6",
+    mvn"me.joshuakfarrar:apollo-auth:0.1.0-SNAPSHOT"
+  )
+}
