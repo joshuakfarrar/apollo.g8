@@ -59,7 +59,7 @@ class Mailgun[F[_]: Async: Concurrent: Network](
 }
 
 object Mailgun {
-  def uri(domain: String) = s"https://api.mailgun.net/v3/$domain/messages"
+  def uri(domain: String) = s"https://api.mailgun.net/v3/\$domain/messages"
 
   trait SendError {
     def message: String
@@ -75,7 +75,7 @@ object Mailgun {
 
   case class EmailAddress(address: String, name: Option[String] = None) {
     override def toString: String = name match {
-      case Some(n) => s"$n <$address>"
+      case Some(n) => s"\$n <\$address>"
       case None    => address
     }
   }

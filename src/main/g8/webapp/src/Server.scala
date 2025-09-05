@@ -99,16 +99,16 @@ object Server:
           Mailgun.EmailAddress(config.mailgunSender),
           Mailgun.EmailAddress(to),
           "Confirm your account",
-          Some(s"Confirm your account (text): http://localhost:8080/confirm/$code"),
-          Some(s"Confirm your account (html): http://localhost:8080/confirm/$code")
+          Some(s"Confirm your account (text): http://localhost:8080/confirm/\$code"),
+          Some(s"Confirm your account (html): http://localhost:8080/confirm/\$code")
         )
 
         override def resetEmail(to: String, code: String): Mailgun.Email = Mailgun.Email(
           Mailgun.EmailAddress(config.mailgunSender),
           Mailgun.EmailAddress(to),
           "Reset your password",
-          Some(s"Reset your password (text): http://localhost:8080/reset/$code"),
-          Some(s"Reset your password (html): http://localhost:8080/reset/$code")
+          Some(s"Reset your password (text): http://localhost:8080/reset/\$code"),
+          Some(s"Reset your password (html): http://localhost:8080/reset/\$code")
         )
 
         override def send(msg: Mailgun.Email): EitherT[F, Throwable, Unit] = mailgun.send(msg).map(_ => ())
