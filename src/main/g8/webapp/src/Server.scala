@@ -139,7 +139,7 @@ object Server:
           .default[F]
           .withHost(ipv4"0.0.0.0")
           .withPort(port"8080")
-          .withHttpApp(CSRFMiddleware.validate[F](csrf, csrfTokenKey)(withErrorLogging)) // CSRFMiddleware.validate[F](csrf, csrfTokenKey)(withErrorLogging)
+          .withHttpApp(CSRFMiddleware.validate[F, F](csrf, cookieName, csrfTokenKey)(withErrorLogging))
           .build
     } yield ()
   }.useForever
