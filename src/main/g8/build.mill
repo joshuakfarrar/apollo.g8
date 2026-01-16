@@ -4,12 +4,6 @@ package build
 
 import mill.*, scalalib.*
 
-/*
- * run `mill --no-server apollo.run` on windows
- * otherwise java will not shutdown properly
- * upon ctrl+c (SIGINT) of the mill client
- */
-
 val Http4sVersion = "0.23.29"
 val CirceVersion = "0.14.10"
 val LogbackVersion = "1.5.17"
@@ -26,8 +20,8 @@ object webapp extends ScalaModule {
   def mvnDeps = Seq(
     // Java dependencies - use single colon
     mvn"org.fusesource.jansi:jansi:2.4.1",
-    mvn"com.microsoft.sqlserver:mssql-jdbc:12.9.0.jre11-preview",
-    //ivy"com.password4j:password4j:1.8.2",
+    mvn"org.postgresql:postgresql:42.7.8",
+    mvn"com.password4j:password4j:1.8.2",
     mvn"org.webjars.npm:normalize.css:8.0.1",
     mvn"org.webjars.npm:jquery:4.0.0-beta.2",
     mvn"org.webjars.npm:bootstrap:5.3.3",
@@ -43,6 +37,9 @@ object webapp extends ScalaModule {
     mvn"com.lihaoyi::scalatags:0.13.1",
     mvn"com.lihaoyi::upickle:4.1.0",
     mvn"org.tpolecat::doobie-core:1.0.0-RC6",
-    mvn"me.joshuakfarrar:apollo-auth:0.1.0-SNAPSHOT"
+    mvn"me.joshuakfarrar:apollo-core:0.1.0-SNAPSHOT",
+    mvn"me.joshuakfarrar:apollo-doobie:0.1.0-SNAPSHOT",
+    mvn"me.joshuakfarrar:apollo-http4s:0.1.0-SNAPSHOT",
+    mvn"org.typelevel::log4cats-slf4j:2.7.1"
   )
 }

@@ -17,8 +17,9 @@ import org.http4s.{
   Request,
   Uri
 }
+import org.typelevel.log4cats.LoggerFactory
 
-class Mailgun[F[_]: Async: Concurrent: Network](
+class Mailgun[F[_]: LoggerFactory: Concurrent: Async: Network](
     domain: Uri,
     apiKey: String
 ) {
@@ -28,7 +29,7 @@ class Mailgun[F[_]: Async: Concurrent: Network](
 
   def send(
       message: Email
-  )(implicit F: Monad[F]): EitherT[F, Throwable, Response] = {
+  ): EitherT[F, Throwable, Response] = {
     val uri = domain
     EitherT {
       EmberClientBuilder

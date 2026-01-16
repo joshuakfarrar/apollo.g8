@@ -2,22 +2,26 @@ import cats.Monad
 import cats.arrow.FunctionK
 import cats.data.{EitherT, Kleisli, OptionT}
 import cats.effect.Resource
-import cats.effect.kernel.Async
+import cats.effect.kernel.{Async, Sync}
 import cats.effect.std.{Console, Random}
 import cats.syntax.all.*
 import com.comcast.ip4s.*
+import com.password4j.Password
 import doobie.implicits.*
-import doobie.{Get, Put, Transactor}
+import doobie.{Get, Meta, Put, Transactor}
 import fs2.io.net.Network
-import me.joshuakfarrar.apollo.auth.*
+import me.joshuakfarrar.apollo.core.*
+import me.joshuakfarrar.apollo.doobie.*
+import me.joshuakfarrar.apollo.http4s.*
 import mg.Mailgun
 import models.User
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
 import org.http4s.server.middleware.{CSRF, ErrorAction, ErrorHandling, Logger}
 import org.http4s.server.staticcontent.webjarServiceBuilder
-import org.http4s.{HttpRoutes, Response, Status, Uri}
-import org.typelevel.log4cats.slf4j.Slf4jLogger
+import org.http4s.{HttpRoutes, Response, Status, Uri, EntityEncoder, UrlForm}
+import org.typelevel.log4cats.LoggerFactory
+import org.typelevel.log4cats.slf4j.Slf4jFactory
 import org.typelevel.vault.Key
 
 import java.util.UUID
@@ -31,9 +35,7 @@ object Server:
   given HasPassword[User] = _.password
   given HasEmail[User] = _.email
 
-  // database mapping instances for UUID type (Doobie needs this for IDs)
-  given Get[UserId] = Get[String].map(UUID.fromString)
-  given Put[UserId] = Put[String].contramap(_.toString)
+  given Meta[UUID] = Meta.Advanced.other[UUID]("uuid")
 
   private val banner = Seq(
     """
@@ -54,13 +56,26 @@ object Server:
       |                        """".stripMargin
   )
 
-  def run[F[_] : Async : Network](
-      config: ApplicationConfiguration
-  )(using C: Console[F], F: Monad[F], R: Random[F]): F[Nothing] = {
+  def run[F[_]: Async: Sync: Network](
+    config: ApplicationConfiguration
+  )(using S: Sync[F], R: Random[F]): F[Nothing] = {
+
+    given LoggerFactory[F] = Slf4jFactory.create[F]
+
+    given Hashable[F, String] with
+      def hash(plain: String): F[String] = S.delay(
+        Password.hash(plain).withArgon2().getResult
+      )
+
+      def verify(plain: String, hashed: String): F[Boolean] = S.delay(
+        Password
+          .check(plain, hashed)
+          .withArgon2()
+      )
 
     for {
       _ <- Resource.eval(
-        defaultLogger[F].info(banner.mkString(System.lineSeparator))
+        LoggerFactory[F].getLogger.info(banner.mkString(System.lineSeparator))
       )
 
       // csrf stuff
@@ -70,23 +85,23 @@ object Server:
       csrfTokenKey <- Resource.eval(Key.newKey[F, String])
 
       csrf = CSRF.withDefaultOriginCheckFormAware[F, F](
-          csrfField,           // fieldName - the form field name to look for
-          FunctionK.id[F]      // nt: F ~> F (natural transformation, use identity)
+          csrfField,
+          FunctionK.id[F]
         )(
           key,
-          "localhost",         // host
-          Uri.Scheme.http,     // scheme
-          Some(8080)           // port
+          "localhost",
+          Uri.Scheme.http,
+          Some(8080)
         )
         .withCookieName(cookieName)
         .withCookieDomain(Some("localhost"))
         .withCookiePath(Some("/"))
         .build
 
-      // services
+      // database transactor
       xa = getTransactor[F](config)
-      userService = UserService.impl[F, User, UserId](xa)
 
+      // mail service implementation
       mailService = new MailService[F, Mailgun.Email, Unit] {
         val mailgun = new Mailgun(
           domain = Uri
@@ -114,51 +129,47 @@ object Server:
         override def send(msg: Mailgun.Email): EitherT[F, Throwable, Unit] = mailgun.send(msg).map(_ => ())
       }
 
-      confirmationService = ConfirmationService.impl[F, User, UserId](xa)
-      resetService = ResetService.impl[F, User, UserId](xa)
-      sessionService = SessionService.impl[F, User, UserId](xa)
+      // Apollo configuration
+      apolloConfig = ApolloConfig[F](
+        csrfTokenKey = csrfTokenKey,
+        csrf = csrf
+      )
+
+      // Apollo services (using Doobie implementations)
+      apolloServices = ApolloServices[F, User, UserId, Mailgun.Email](
+        user = UserServiceDoobie.impl[F, User, UserId](xa),
+        confirmation = ConfirmationServiceDoobie.impl[F, User, UserId](xa),
+        mail = mailService,
+        session = SessionServiceDoobie.impl[F, User, UserId](xa),
+        reset = ResetServiceDoobie.impl[F, User, UserId](xa)
+      )
+
+      // Create Apollo instance with config and services
+      apollo = Apollo[F, User, UserId, Mailgun.Email](apolloConfig, apolloServices)
 
       httpApp = FlashMiddleware
         .httpRoutes[F](
           webjarServiceBuilder[F].toRoutes
-            <+> AuthRoutes.routes[F, User, Mailgun.Email, UserId](csrfTokenKey, csrf, userService, confirmationService, mailService, sessionService, resetService)
+            <+> AuthRoutes.routes[F, User, Mailgun.Email, UserId](apollo)
         )
         .orNotFound
 
       finalHttpApp = Logger.httpApp(true, true)(httpApp)
-      withErrorLogging = ErrorHandling.Recover.total(
-        ErrorAction.log(
-          finalHttpApp,
-          messageFailureLogAction = errorHandler,
-          serviceErrorLogAction = errorHandler
-        )
-      )
 
       _ <-
         EmberServerBuilder
           .default[F]
           .withHost(ipv4"0.0.0.0")
           .withPort(port"8080")
-          .withHttpApp(CSRFMiddleware.validate[F, F](csrf, cookieName, csrfTokenKey)(withErrorLogging))
+          .withHttpApp(CSRFMiddleware.validate[F, F](csrf, cookieName, csrfTokenKey)(finalHttpApp))
           .build
     } yield ()
   }.useForever
 
-  private def defaultLogger[F[_] : Async]: org.typelevel.log4cats.Logger[F] =
-    Slf4jLogger.getLogger[F]
-
-  private def errorHandler[F[_] : Async](t: Throwable, msg: => String)(using
-    C: Console[F]
-  ): F[Unit] =
-    for {
-      _ <- Console[F].println(msg)
-      _ <- Console[F].printStackTrace(t)
-    } yield ()
-
   private def getTransactor[F[_] : Async: Network](
       config: ApplicationConfiguration
   ) = Transactor.fromDriverManager[F] (
-      driver = "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+      driver = "org.postgresql.Driver",
       url = config.sqlUrl,
       user = config.sqlUsername,
       password = config.sqlPassword,
