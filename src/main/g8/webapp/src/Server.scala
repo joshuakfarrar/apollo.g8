@@ -10,9 +10,9 @@ import com.password4j.Password
 import doobie.implicits.*
 import doobie.{Get, Meta, Put, Transactor}
 import fs2.io.net.Network
-import me.joshuakfarrar.apollo.core.*
-import me.joshuakfarrar.apollo.doobie.*
-import me.joshuakfarrar.apollo.http4s.*
+import io.github.joshuakfarrar.apollo.core.*
+import io.github.joshuakfarrar.apollo.doobie.*
+import io.github.joshuakfarrar.apollo.http4s.*
 import mg.Mailgun
 import models.User
 import org.http4s.ember.server.EmberServerBuilder
@@ -137,11 +137,11 @@ object Server:
 
       // Apollo services (using Doobie implementations)
       apolloServices = ApolloServices[F, User, UserId, Mailgun.Email](
-        user = UserServiceDoobie.impl[F, User, UserId](xa),
-        confirmation = ConfirmationServiceDoobie.impl[F, User, UserId](xa),
+        user = DoobieUserService[F, User, UserId](xa),
+        confirmation = DoobieConfirmationService[F, User, UserId](xa),
         mail = mailService,
-        session = SessionServiceDoobie.impl[F, User, UserId](xa),
-        reset = ResetServiceDoobie.impl[F, User, UserId](xa)
+        session = DoobieSessionService[F, User, UserId](xa),
+        reset = DoobieResetService[F, User, UserId](xa)
       )
 
       // Create Apollo instance with config and services
