@@ -37,9 +37,9 @@ object webapp extends ScalaModule {
     mvn"com.lihaoyi::scalatags:0.13.1",
     mvn"com.lihaoyi::upickle:4.1.0",
     mvn"org.tpolecat::doobie-core:1.0.0-RC6",
-    mvn"me.joshuakfarrar:apollo-core:0.1.0-SNAPSHOT",
-    mvn"me.joshuakfarrar:apollo-doobie:0.1.0-SNAPSHOT",
-    mvn"me.joshuakfarrar:apollo-http4s:0.1.0-SNAPSHOT",
+    mvn"io.github.joshuakfarrar::apollo-core:0.1.0-SNAPSHOT",
+    mvn"io.github.joshuakfarrar::apollo-doobie:0.1.0-SNAPSHOT",
+    mvn"io.github.joshuakfarrar::apollo-http4s:0.1.0-SNAPSHOT",
     mvn"org.typelevel::log4cats-slf4j:2.7.1"
   )
 }
