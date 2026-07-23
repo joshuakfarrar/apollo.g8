@@ -145,7 +145,9 @@ object Server:
         .httpRoutes[F](webjarServiceBuilder[F].toRoutes <+> routes)
         .orNotFound
 
-      finalHttpApp = Logger.httpApp(true, true)(httpApp)
+      // one line per request; set logBody = true to dump full bodies when
+      // debugging, at the cost of drowning out the [apollo mail] lines
+      finalHttpApp = Logger.httpApp(logHeaders = false, logBody = false)(httpApp)
 
       _ <-
         EmberServerBuilder
