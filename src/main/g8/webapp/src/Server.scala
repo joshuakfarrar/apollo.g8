@@ -159,7 +159,7 @@ object Server:
   // Builds the Apollo services and routes for any mail backend E.
   // Confirmation is opt-in: drop the Some(...) to sign users in
   // immediately after registration without e-mail confirmation.
-  private def apolloRoutes[F[_]: Async: Random, E](
+  private def apolloRoutes[F[_]: Async: Random: LoggerFactory, E](
       apolloConfig: ApolloConfig[F],
       xa: Transactor[F],
       mailService: MailService[F, E, Unit]
