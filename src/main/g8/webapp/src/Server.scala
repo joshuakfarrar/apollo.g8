@@ -56,7 +56,7 @@ object Server:
       |                        """".stripMargin
   )
 
-  def run[F[_]: Async: Sync: Network](
+  def run[F[_]: Async: Sync: Network: Console](
     config: ApplicationConfiguration
   )(using S: Sync[F], R: Random[F]): F[Nothing] = {
 
@@ -101,60 +101,41 @@ object Server:
       // database transactor
       xa = getTransactor[F](config)
 
-      // mail service implementation
-      mailService = new MailService[F, Mailgun.Email, Unit] {
-        val mailgun = new Mailgun(
-          domain = Uri
-            .fromString(Mailgun.uri(config.mailgunDomain))
-            .fold(throw _, identity),
-          apiKey = config.mailgunKey
-        )
-
-        override def confirmationEmail(to: String, code: String): Mailgun.Email = Mailgun.Email(
-          Mailgun.EmailAddress(config.mailgunSender),
-          Mailgun.EmailAddress(to),
-          "Confirm your account",
-          Some(s"Confirm your account (text): \${config.uiUrl}/confirm/\$code"),
-          Some(s"Confirm your account (html): \${config.uiUrl}/confirm/\$code")
-        )
-
-        override def resetEmail(to: String, code: String): Mailgun.Email = Mailgun.Email(
-          Mailgun.EmailAddress(config.mailgunSender),
-          Mailgun.EmailAddress(to),
-          "Reset your password",
-          Some(s"Reset your password (text): \${config.uiUrl}/reset/\$code"),
-          Some(s"Reset your password (html): \${config.uiUrl}/reset/\$code")
-        )
-
-        override def send(msg: Mailgun.Email): EitherT[F, Throwable, Unit] = mailgun.send(msg).map(_ => ())
-      }
-
       // Apollo configuration
       apolloConfig = ApolloConfig[F](
         csrfTokenKey = csrfTokenKey,
         csrf = csrf
       )
 
-      // Apollo services (using Doobie implementations). Confirmation is
-      // opt-in: drop the Some(...) to sign users in immediately after
-      // registration without e-mail confirmation.
-      apolloServices = ApolloServices[F, User, UserId, Mailgun.Email](
-        user = DoobieUserService[F, User, UserId](xa),
-        mail = mailService,
-        session = DoobieSessionService[F, User, UserId](xa),
-        reset = DoobieResetService[F, User, UserId](xa),
-        confirmation = Some(DoobieConfirmationService[F, User, UserId](xa))
-      )
+      // mail backend: Mailgun when configured in application.conf, otherwise
+      // confirmation and reset e-mails are printed to the console
+      mailgunConfig = (
+        config.mailgunDomain.filter(_.nonEmpty),
+        config.mailgunKey.filter(_.nonEmpty),
+        config.mailgunSender.filter(_.nonEmpty)
+      ).tupled
 
-      // Create Apollo instance with config and services
-      apollo = Apollo[F, User, UserId, Mailgun.Email](apolloConfig, apolloServices)
+      _ <- Resource.eval(mailgunConfig match {
+        case Some(_) => S.unit
+        case None =>
+          LoggerFactory[F].getLogger.info(
+            "No Mailgun configuration found — e-mails will be printed to the console"
+          )
+      })
+
+      routes = mailgunConfig match {
+        case Some((domain, key, sender)) =>
+          apolloRoutes[F, Mailgun.Email](
+            apolloConfig,
+            xa,
+            mailgunMailService[F](domain, key, sender, config.uiUrl)
+          )
+        case None =>
+          apolloRoutes[F, String](apolloConfig, xa, MailService.console[F])
+      }
 
       httpApp = FlashMiddleware
-        .httpRoutes[F](
-          webjarServiceBuilder[F].toRoutes
-            <+> WelcomeRoutes.routes[F, User, UserId, Mailgun.Email](apollo)
-            <+> AuthRoutes.routes[F, User, UserId, Mailgun.Email](apollo)
-        )
+        .httpRoutes[F](webjarServiceBuilder[F].toRoutes <+> routes)
         .orNotFound
 
       finalHttpApp = Logger.httpApp(true, true)(httpApp)
@@ -168,6 +149,57 @@ object Server:
           .build
     } yield ()
   }.useForever
+
+  // Builds the Apollo services and routes for any mail backend E.
+  // Confirmation is opt-in: drop the Some(...) to sign users in
+  // immediately after registration without e-mail confirmation.
+  private def apolloRoutes[F[_]: Async: Random, E](
+      apolloConfig: ApolloConfig[F],
+      xa: Transactor[F],
+      mailService: MailService[F, E, Unit]
+  )(using Hashable[F, String]): HttpRoutes[F] = {
+    val services = ApolloServices[F, User, UserId, E](
+      user = DoobieUserService[F, User, UserId](xa),
+      mail = mailService,
+      session = DoobieSessionService[F, User, UserId](xa),
+      reset = DoobieResetService[F, User, UserId](xa),
+      confirmation = Some(DoobieConfirmationService[F, User, UserId](xa))
+    )
+    val apollo = Apollo[F, User, UserId, E](apolloConfig, services)
+    WelcomeRoutes.routes[F, User, UserId, E](apollo) <+>
+      AuthRoutes.routes[F, User, UserId, E](apollo)
+  }
+
+  private def mailgunMailService[F[_]: Async: Network: LoggerFactory](
+      domain: String,
+      apiKey: String,
+      sender: String,
+      uiUrl: String
+  ): MailService[F, Mailgun.Email, Unit] =
+    new MailService[F, Mailgun.Email, Unit] {
+      val mailgun = new Mailgun(
+        domain = Uri.fromString(Mailgun.uri(domain)).fold(throw _, identity),
+        apiKey = apiKey
+      )
+
+      override def confirmationEmail(to: String, code: String): Mailgun.Email = Mailgun.Email(
+        Mailgun.EmailAddress(sender),
+        Mailgun.EmailAddress(to),
+        "Confirm your account",
+        Some(s"Confirm your account (text): \$uiUrl/confirm/\$code"),
+        Some(s"Confirm your account (html): \$uiUrl/confirm/\$code")
+      )
+
+      override def resetEmail(to: String, code: String): Mailgun.Email = Mailgun.Email(
+        Mailgun.EmailAddress(sender),
+        Mailgun.EmailAddress(to),
+        "Reset your password",
+        Some(s"Reset your password (text): \$uiUrl/reset/\$code"),
+        Some(s"Reset your password (html): \$uiUrl/reset/\$code")
+      )
+
+      override def send(msg: Mailgun.Email): EitherT[F, Throwable, Unit] = mailgun.send(msg).map(_ => ())
+    }
 
   private def getTransactor[F[_] : Async: Network](
       config: ApplicationConfiguration
