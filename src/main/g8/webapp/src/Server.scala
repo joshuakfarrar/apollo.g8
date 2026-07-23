@@ -135,13 +135,15 @@ object Server:
         csrf = csrf
       )
 
-      // Apollo services (using Doobie implementations)
+      // Apollo services (using Doobie implementations). Confirmation is
+      // opt-in: drop the Some(...) to sign users in immediately after
+      // registration without e-mail confirmation.
       apolloServices = ApolloServices[F, User, UserId, Mailgun.Email](
         user = DoobieUserService[F, User, UserId](xa),
-        confirmation = DoobieConfirmationService[F, User, UserId](xa),
         mail = mailService,
         session = DoobieSessionService[F, User, UserId](xa),
-        reset = DoobieResetService[F, User, UserId](xa)
+        reset = DoobieResetService[F, User, UserId](xa),
+        confirmation = Some(DoobieConfirmationService[F, User, UserId](xa))
       )
 
       // Create Apollo instance with config and services
@@ -150,7 +152,8 @@ object Server:
       httpApp = FlashMiddleware
         .httpRoutes[F](
           webjarServiceBuilder[F].toRoutes
-            <+> AuthRoutes.routes[F, User, Mailgun.Email, UserId](apollo)
+            <+> WelcomeRoutes.routes[F, User, UserId, Mailgun.Email](apollo)
+            <+> AuthRoutes.routes[F, User, UserId, Mailgun.Email](apollo)
         )
         .orNotFound
 
