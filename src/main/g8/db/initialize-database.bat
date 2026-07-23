@@ -22,10 +22,12 @@ if "%DBNAME%"=="" set DBNAME=$name$
 set /p DBUSER="Database user for the app [$name$]: "
 if "%DBUSER%"=="" set DBUSER=$name$
 
-set PSQL_ADMIN=psql -h %DBHOST% -p %DBPORT% -U %ADMINUSER% -d postgres -v ON_ERROR_STOP=1
+:: No -v ON_ERROR_STOP=1 here: cmd's for /f re-parsing splits on the "="
+:: and psql then misreads every argument after it.
+set PSQL_ADMIN=psql -h %DBHOST% -p %DBPORT% -U %ADMINUSER% -d postgres
 
 set DBEXISTS=
-for /f "usebackq delims=" %%i in (`%PSQL_ADMIN% -tAc "SELECT 1 FROM pg_database WHERE datname = '%DBNAME%'"`) do set DBEXISTS=%%i
+for /f "usebackq delims=" %%i in (`%PSQL_ADMIN% -tAc "SELECT 1 FROM pg_database WHERE datname='%DBNAME%'"`) do set DBEXISTS=%%i
 if "%DBEXISTS%"=="1" (
     echo Database '%DBNAME%' already exists -- refusing to touch it.
     echo Pick a different name, or drop it first with reset-database.bat.
@@ -33,12 +35,12 @@ if "%DBEXISTS%"=="1" (
 )
 
 set ROLEEXISTS=
-for /f "usebackq delims=" %%i in (`%PSQL_ADMIN% -tAc "SELECT 1 FROM pg_roles WHERE rolname = '%DBUSER%'"`) do set ROLEEXISTS=%%i
+for /f "usebackq delims=" %%i in (`%PSQL_ADMIN% -tAc "SELECT 1 FROM pg_roles WHERE rolname='%DBUSER%'"`) do set ROLEEXISTS=%%i
 if "%ROLEEXISTS%"=="1" goto password_existing
 
 set /p DBPASS="Password for new user %DBUSER% (leave blank to generate one): "
 if not "%DBPASS%"=="" goto create_role
-for /f %%i in ('powershell -NoProfile -Command "[guid]::NewGuid().ToString('N')"') do set DBPASS=%%i
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "[guid]::NewGuid().ToString()"`) do set DBPASS=%%i
 echo Generated a random password.
 
 :create_role
