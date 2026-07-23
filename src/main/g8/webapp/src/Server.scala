@@ -13,7 +13,7 @@ import fs2.io.net.Network
 import io.github.joshuakfarrar.apollo.core.*
 import io.github.joshuakfarrar.apollo.doobie.*
 import io.github.joshuakfarrar.apollo.http4s.*
-import mg.Mailgun
+import mg.{Mailgun, MailgunMailService}
 import models.User
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.implicits.*
@@ -113,8 +113,9 @@ object Server:
         csrf = csrf
       )
 
-      // mail backend: Mailgun when configured in application.conf, otherwise
-      // confirmation and reset e-mails are printed to the console
+      // mail backend: the console mailer is the default — confirmation and
+      // reset e-mails are printed to the server console. Setting all three
+      // mailgun-* keys in application.conf switches to mg.MailgunMailService.
       mailgunConfig = (
         config.mailgunDomain.filter(_.nonEmpty),
         config.mailgunKey.filter(_.nonEmpty),
@@ -122,22 +123,22 @@ object Server:
       ).tupled
 
       _ <- Resource.eval(mailgunConfig match {
-        case Some(_) => S.unit
         case None =>
           LoggerFactory[F].getLogger.info(
             "No Mailgun configuration found — e-mails will be printed to the console"
           )
+        case Some(_) => S.unit
       })
 
       routes = mailgunConfig match {
+        case None =>
+          apolloRoutes[F, String](apolloConfig, xa, MailService.console[F])
         case Some((domain, key, sender)) =>
           apolloRoutes[F, Mailgun.Email](
             apolloConfig,
             xa,
-            mailgunMailService[F](domain, key, sender, config.uiUrl)
+            MailgunMailService[F](domain, key, sender, config.uiUrl)
           )
-        case None =>
-          apolloRoutes[F, String](apolloConfig, xa, MailService.console[F])
       }
 
       httpApp = FlashMiddleware
@@ -175,37 +176,6 @@ object Server:
     WelcomeRoutes.routes[F, User, UserId, E](apollo) <+>
       AuthRoutes.routes[F, User, UserId, E](apollo)
   }
-
-  private def mailgunMailService[F[_]: Async: Network: LoggerFactory](
-      domain: String,
-      apiKey: String,
-      sender: String,
-      uiUrl: String
-  ): MailService[F, Mailgun.Email, Unit] =
-    new MailService[F, Mailgun.Email, Unit] {
-      val mailgun = new Mailgun(
-        domain = Uri.fromString(Mailgun.uri(domain)).fold(throw _, identity),
-        apiKey = apiKey
-      )
-
-      override def confirmationEmail(to: String, code: String): Mailgun.Email = Mailgun.Email(
-        Mailgun.EmailAddress(sender),
-        Mailgun.EmailAddress(to),
-        "Confirm your account",
-        Some(s"Confirm your account (text): \$uiUrl/confirm/\$code"),
-        Some(s"Confirm your account (html): \$uiUrl/confirm/\$code")
-      )
-
-      override def resetEmail(to: String, code: String): Mailgun.Email = Mailgun.Email(
-        Mailgun.EmailAddress(sender),
-        Mailgun.EmailAddress(to),
-        "Reset your password",
-        Some(s"Reset your password (text): \$uiUrl/reset/\$code"),
-        Some(s"Reset your password (html): \$uiUrl/reset/\$code")
-      )
-
-      override def send(msg: Mailgun.Email): EitherT[F, Throwable, Unit] = mailgun.send(msg).map(_ => ())
-    }
 
   private def getTransactor[F[_] : Async: Network](
       config: ApplicationConfiguration
