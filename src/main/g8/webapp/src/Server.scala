@@ -81,7 +81,12 @@ object Server:
       // csrf stuff
       cookieName = "csrf-token"
       csrfField = "_csrf"
-      key  <- Resource.eval(CSRF.generateSigningKey[F]())
+      key <- Resource.eval(config.csrfKey.filter(_.nonEmpty) match {
+        case Some(encoded) =>
+          S.delay(java.util.Base64.getDecoder.decode(encoded))
+            .flatMap(CSRF.buildSigningKey[F](_))
+        case None => CSRF.generateSigningKey[F]()
+      })
       csrfTokenKey <- Resource.eval(Key.newKey[F, String])
 
       csrf = CSRF.withDefaultOriginCheckFormAware[F, F](
@@ -89,13 +94,14 @@ object Server:
           FunctionK.id[F]
         )(
           key,
-          "localhost",
-          Uri.Scheme.http,
-          Some(8080)
+          config.csrfHost,
+          if (config.csrfSecure) Uri.Scheme.https else Uri.Scheme.http,
+          config.csrfPort
         )
         .withCookieName(cookieName)
-        .withCookieDomain(Some("localhost"))
+        .withCookieDomain(Some(config.csrfHost))
         .withCookiePath(Some("/"))
+        .withCookieSecure(config.csrfSecure)
         .build
 
       // database transactor
