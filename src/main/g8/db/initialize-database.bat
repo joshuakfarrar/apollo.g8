@@ -38,10 +38,8 @@ set ROLEEXISTS=
 for /f "usebackq delims=" %%i in (`%PSQL_ADMIN% -tAc "SELECT 1 FROM pg_roles WHERE rolname='%DBUSER%'"`) do set ROLEEXISTS=%%i
 if "%ROLEEXISTS%"=="1" goto password_existing
 
-set /p DBPASS="Password for new user %DBUSER% (leave blank to generate one): "
-if not "%DBPASS%"=="" goto create_role
-for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "[guid]::NewGuid().ToString()"`) do set DBPASS=%%i
-echo Generated a random password.
+set /p DBPASS="Password for new user %DBUSER% [$name$]: "
+if "%DBPASS%"=="" set DBPASS=$name$
 
 :create_role
 set DBPASS_SQL=%DBPASS:'=''%
@@ -66,7 +64,8 @@ for %%f in (000-create-users.sql 001-create-confirmations.sql 002-create-session
 )
 
 echo.
-echo Done! Put these in webapp\resources\application.conf:
+echo Done! webapp\resources\application.conf already defaults to the
+echo values below -- edit it only if yours differ:
 echo.
 echo   sql-url="jdbc:postgresql://%DBHOST%:%DBPORT%/%DBNAME%"
 echo   sql-username="%DBUSER%"
